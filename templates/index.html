@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔔 Rakshak - Campus Safety</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        h1 { color: #333; margin-bottom: 10px; font-size: 2.4em; }
+        .subtitle { color: #666; margin-bottom: 25px; font-size: 1.1em; }
+        .status {
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            font-weight: 500;
+            min-height: 60px;
+            transition: all 0.3s ease;
+        }
+        .status.inactive { background: #f0f0f0; color: #666; }
+        .status.active  { background: #e8f5e9; color: #2e7d32; }
+        .status.error   { background: #ffebee; color: #c62828; }
+        .status.shaking { background: #fff3e0; color: #e65100; animation: shake 0.6s; }
+        @keyframes shake {
+            0%,100% { transform: translateX(0); }
+            10%,30%,50%,70%,90% { transform: translateX(-12px); }
+            20%,40%,60%,80% { transform: translateX(12px); }
+        }
+        .shake-icon { font-size: 6em; margin: 20px 0; }
+        .counter { font-size: 4em; font-weight: bold; color: #667eea; margin: 15px 0; }
+        .btn {
+            background: #e53935;
+            color: white;
+            border: none;
+            padding: 18px 60px;
+            border-radius: 50px;
+            font-size: 1.4em;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 20px auto;
+            display: block;
+            box-shadow: 0 8px 25px rgba(229,57,53,0.4);
+            transition: all 0.25s;
+        }
+        .btn:hover:not(:disabled) { transform: scale(1.06); background: #d32f2f; }
+        .btn:disabled { background: #aaa; cursor: not-allowed; box-shadow: none; }
+        .cancel-btn {
+            background: #4caf50;
+            color: white;
+            border: none;
+            padding: 14px 40px;
+            border-radius: 50px;
+            font-size: 1.2em;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 15px auto;
+            display: none;
+            box-shadow: 0 6px 20px rgba(76,175,80,0.4);
+        }
+        .cancel-btn:hover { transform: scale(1.05); background: #43a047; }
+        .info {
+            background: #e3f2fd;
+            border-left: 5px solid #2196f3;
+            padding: 16px;
+            border-radius: 8px;
+            margin: 25px 0 10px;
+            text-align: left;
+            font-size: 0.95em;
+            color: #444;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔔 Rakshak</h1>
+        <p class="subtitle">Shake phone violently or tap SOS if in danger</p>
+
+        <div id="status" class="status inactive">
+            Tap "ACTIVATE SENSORS" to start protection
+        </div>
+
+        <div class="shake-icon" id="shakeIcon">📱</div>
+
+        <div class="counter" id="counter">0</div>
+        <div style="color: #666; margin-top: -12px; margin-bottom: 25px;">Shakes detected</div>
+
+        <button id="activateBtn" class="btn">ACTIVATE SENSORS</button>
+        <button id="panicBtn" class="btn" style="background:#b71c1c; display:none;">🚨 SOS PANIC NOW</button>
+        <button id="cancelBtn" class="cancel-btn">I'M SAFE – CANCEL ALERT</button>
+
+        <div class="info">
+            <strong>Demo flow:</strong><br>
+            1. Tap ACTIVATE SENSORS (required on iPhone)<br>
+            2. Grant all permissions<br>
+            3. Shake violently OR tap red SOS button<br>
+            4. During countdown: tap "I'M SAFE" to cancel false alert
+        </div>
+    </div>
+
+    <script>
+        let shakeCount = 0;
+        let isListening = false;
+        let lastShakeTime = 0;
+        const SHAKE_THRESHOLD = 8;
+        const SHAKE_COOLDOWN = 800;
+        const SHAKE_WINDOW = 2000;
+        const REQUIRED_PEAKS = 2;
+
+        let lastAccel = { x: 0, y: 0, z: 0 };
+        let peakCount = 0;
+        let windowStart = 0;
+        let countdownTimer = null;
+        let isCountdownActive = false;
+
+        const statusEl = document.getElementById("status");
+        const counterEl = document.getElementById("counter");
+        const shakeIconEl = document.getElementById("shakeIcon");
+        const activateBtn = document.getElementById("activateBtn");
+        const panicBtn = document.getElementById("panicBtn");
+        const cancelBtn = document.getElementById("cancelBtn");
+
+        function updateStatus(message, className) {
+            statusEl.textContent = message;
+            statusEl.className = `status ${className || 'active'}`;
+        }
+
+        function updateCounter() {
+            counterEl.textContent = shakeCount;
+        }
+
+        function animateShake() {
+            shakeIconEl.textContent = "🚨";
+            updateStatus("SHAKE DETECTED!", "shaking");
+            setTimeout(() => {
+                shakeIconEl.textContent = "📱";
+                if (isListening && !isCountdownActive) updateStatus("Monitoring for danger...", "active");
+            }, 800);
+        }
+
+        function handleShake() {
+            const now = Date.now();
+            if (now - lastShakeTime > SHAKE_COOLDOWN) {
+                lastShakeTime = now;
+                animateShake();
+                shakeCount++;
+                updateCounter();
+                console.log(`Shake #${shakeCount}`);
+                if (shakeCount >= 5 && !isCountdownActive) {
+                    console.log("Triggering emergency...");
+                    startEmergencyCountdown();
+                }
+            }
+        }
+
+        function handleMotion(event) {
+            if (!isListening || isCountdownActive) return;
+            const accel = event.accelerationIncludingGravity;
+            if (!accel || accel.x === null) return;
+
+            const { x, y, z } = accel;
+            const magnitude = Math.sqrt(x*x + y*y + z*z);
+            const lastMag = Math.sqrt(lastAccel.x**2 + lastAccel.y**2 + lastAccel.z**2);
+            const delta = Math.abs(magnitude - lastMag);
+
+            const now = Date.now();
+            if (now - windowStart > SHAKE_WINDOW) {
+                peakCount = 0;
+                windowStart = now;
+            }
+
+            if (delta > SHAKE_THRESHOLD) peakCount++;
+
+            if (peakCount >= REQUIRED_PEAKS) {
+                handleShake();
+                peakCount = 0;
+                windowStart = now;
+            }
+
+            lastAccel = { x, y, z };
+        }
+
+        async function activateSensors() {
+            if (isListening) return;
+
+            activateBtn.disabled = true;
+            updateStatus("Requesting motion permission...", "active");
+
+            if (window.DeviceMotionEvent) {
+                if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                    try {
+                        const permission = await DeviceMotionEvent.requestPermission();
+                        if (permission === 'granted') {
+                            window.addEventListener("devicemotion", handleMotion, { passive: true });
+                            isListening = true;
+                            updateStatus("Monitoring for danger...", "active");
+                            activateBtn.textContent = "PROTECTION ACTIVE";
+                            panicBtn.style.display = "block"; // Show SOS button
+                        } else {
+                            updateStatus("Motion permission denied – tap again to retry", "error");
+                            activateBtn.disabled = false;
+                        }
+                    } catch (err) {
+                        updateStatus("Permission error – try on Android", "error");
+                        activateBtn.disabled = false;
+                        console.error(err);
+                    }
+                } else {
+                    window.addEventListener("devicemotion", handleMotion, { passive: true });
+                    isListening = true;
+                    updateStatus("Monitoring for danger...", "active");
+                    activateBtn.textContent = "PROTECTION ACTIVE";
+                    panicBtn.style.display = "block";
+                }
+            } else {
+                updateStatus("Motion sensors not supported", "error");
+            }
+        }
+
+        activateBtn.addEventListener('click', activateSensors);
+
+        // Manual panic button trigger
+        panicBtn.addEventListener('click', () => {
+            if (!isCountdownActive) {
+                console.log("Manual SOS triggered");
+                startEmergencyCountdown();
+            }
+        });
+
+        // ──────────────────────────────────────────────
+        // EMERGENCY FLOW WITH CANCEL
+        // ──────────────────────────────────────────────
+
+        let cameraStream = null;
+
+        async function getRearCameraStream() {
+            if (cameraStream) return cameraStream;
+            try {
+                cameraStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment" },
+                    audio: false
+                });
+                console.log("Rear camera acquired");
+                return cameraStream;
+            } catch (err) {
+                console.warn("Camera denied/failed", err);
+                return null;
+            }
+        }
+
+        function capturePhoto(callback) {
+            getRearCameraStream().then(stream => {
+                if (!stream) return callback(null);
+                const video = document.createElement('video');
+                video.srcObject = stream;
+                video.muted = true;
+                video.playsInline = true;
+                video.onloadedmetadata = () => {
+                    video.play().then(() => {
+                        setTimeout(() => {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = video.videoWidth || 640;
+                            canvas.height = video.videoHeight || 480;
+                            canvas.getContext('2d').drawImage(video, 0, 0);
+                            canvas.toBlob(blob => callback(blob), 'image/png');
+                        }, 400);
+                    });
+                };
+            });
+        }
+
+        function startAudioRecording(callback) {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    const recorder = new MediaRecorder(stream);
+                    const chunks = [];
+                    recorder.ondataavailable = e => chunks.push(e.data);
+                    recorder.onstop = () => {
+                        const blob = new Blob(chunks, { type: 'audio/webm' });
+                        callback(blob);
+                        stream.getTracks().forEach(t => t.stop());
+                    };
+                    recorder.start();
+                    setTimeout(() => recorder.state === "recording" && recorder.stop(), 5000);
+                    console.log("Audio 5s recording started");
+                })
+                .catch(err => {
+                    console.warn("Mic denied", err);
+                    callback(null);
+                });
+        }
+
+        function startEmergencyCountdown() {
+            if (isCountdownActive) return;
+            isCountdownActive = true;
+            cancelBtn.style.display = "block"; // Show cancel during countdown
+
+            let timeLeft = 3;
+            updateStatus(`ALERT in ${timeLeft}... (tap I'M SAFE to cancel)`, "shaking");
+
+            countdownTimer = setInterval(() => {
+                timeLeft--;
+                updateStatus(`ALERT in ${timeLeft}... (tap I'M SAFE to cancel)`, "shaking");
+
+                if (timeLeft <= 0) {
+                    clearInterval(countdownTimer);
+                    cancelBtn.style.display = "none";
+                    isCountdownActive = false;
+                    updateStatus("SENDING ALERT...", "shaking");
+
+                    const locPromise = new Promise(resolve => {
+                        if (!navigator.geolocation) return resolve({});
+                        navigator.geolocation.getCurrentPosition(
+                            pos => resolve({
+                                lat: pos.coords.latitude,
+                                lng: pos.coords.longitude,
+                                accuracy: pos.coords.accuracy
+                            }),
+                            err => {
+                                console.warn("Geo denied", err);
+                                resolve({});
+                            },
+                            { timeout: 7000 }
+                        );
+                    });
+
+                    locPromise.then(location => {
+                        const deviceInfo = {
+                            userAgent: navigator.userAgent,
+                            platform: navigator.platform,
+                            language: navigator.language
+                        };
+
+                        const formData = new FormData();
+                        formData.append('location', JSON.stringify(location));
+                        formData.append('device_info', JSON.stringify(deviceInfo));
+
+                        capturePhoto(photoBlob => {
+                            if (photoBlob) formData.append('photo', photoBlob, 'emergency.png');
+
+                            startAudioRecording(audioBlob => {
+                                if (audioBlob) {
+                                    const audioForm = new FormData();
+                                    audioForm.append('audio', audioBlob, 'emergency_audio.webm');
+                                    audioForm.append('location', JSON.stringify(location));
+                                    audioForm.append('device_info', JSON.stringify(deviceInfo));
+                                    fetch("/api/emergency", { method: "POST", body: audioForm })
+                                        .catch(e => console.error("Audio upload fail", e));
+                                }
+                            });
+
+                            fetch("/api/emergency", { method: "POST", body: formData })
+                                .then(r => r.json())
+                                .then(data => {
+                                    const trans = data.transcription || "No transcription";
+                                    updateStatus(`ALERT SENT ✓\nTranscription: ${trans}`, "active");
+                                    shakeCount = 0;
+                                    updateCounter();
+                                })
+                                .catch(err => {
+                                    console.error("Send failed", err);
+                                    updateStatus("SEND FAILED", "error");
+                                });
+                        });
+                    });
+                }
+            }, 1000);
+        }
+
+        // Cancel button logic
+        cancelBtn.addEventListener('click', () => {
+            if (countdownTimer) {
+                clearInterval(countdownTimer);
+                countdownTimer = null;
+            }
+            isCountdownActive = false;
+            cancelBtn.style.display = "none";
+            shakeCount = 0;
+            updateCounter();
+            updateStatus("Alert cancelled – monitoring resumed", "active");
+            console.log("Emergency cancelled by user");
+        });
+    </script>
+</body>
+</html>

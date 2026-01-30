@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rakshak – Security Dashboard</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 20px; background: #f8f9fa; color: #212529; }
+        .header { text-align: center; margin-bottom: 30px; }
+        h1 { color: #1a3c6d; margin-bottom: 8px; }
+        .security-loc { color: #6c757d; font-size: 0.95em; margin-bottom: 20px; }
+        .controls { text-align: center; margin-bottom: 25px; }
+        .btn-clear {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            font-size: 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-clear:hover { background: #c82333; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        th, td { padding: 14px 12px; text-align: left; border-bottom: 1px solid #dee2e6; }
+        th { background: #0d6efd; color: white; font-weight: 600; }
+        tr:hover { background: #f1f3f5; }
+        img { max-width: 180px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+        .transcript { max-width: 300px; white-space: pre-wrap; font-size: 0.95em; }
+        .no-data { text-align: center; color: #6c757d; font-style: italic; padding: 40px; }
+        a { color: #0d6efd; text-decoration: none; font-weight: 500; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Rakshak Security Dashboard</h1>
+        <div class="security-loc">
+            Security post: ({{ security_lat }}, {{ security_lng }}) – replace with actual coordinates
+        </div>
+    </div>
+
+    <div class="controls">
+        <button class="btn-clear" onclick="if(confirm('Clear ALL alerts? This cannot be undone.')) clearAlerts()">Clear All Alerts (Demo Reset)</button>
+    </div>
+
+    {% if alerts %}
+    <table>
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>User</th>
+                <th>Location</th>
+                <th>Device</th>
+                <th>Photo</th>
+                <th>Transcript</th>
+                <th>Navigation</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for alert in alerts %}
+            <tr>
+                <td>{{ alert.timestamp }}</td>
+                <td>{{ alert.user_email }}</td>
+                <td>
+                    {% if alert.location and alert.location.lat %}
+                        {{ alert.location.lat | round(6) }}, {{ alert.location.lng | round(6) }}
+                        (acc: {{ alert.location.accuracy|default('?') }}m)
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+                <td><small>{{ alert.device_info|default('—') }}</small></td>
+                <td>
+                    {% if alert.photo_path %}
+                        <img src="/{{ alert.photo_path }}" alt="Incident photo">
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+                <td class="transcript">{{ alert.transcription|default('No audio / no transcript') }}</td>
+                <td>
+                    {% if alert.directions_url %}
+                        <a href="{{ alert.directions_url }}" target="_blank">→ Directions</a>
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="no-data">No active alerts at this time.</p>
+    {% endif %}
+
+    <script>
+        function clearAlerts() {
+            fetch('/dashboard/clear', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    alert(`Cleared ${data.deleted} alert(s)`);
+                    location.reload();
+                })
+                .catch(err => alert('Clear failed: ' + err));
+        }
+    </script>
+</body>
+</html>
