@@ -5,112 +5,444 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rakshak – Security Dashboard</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 20px; background: #f8f9fa; color: #212529; }
-        .header { text-align: center; margin-bottom: 30px; }
-        h1 { color: #1a3c6d; margin-bottom: 8px; }
-        .security-loc { color: #6c757d; font-size: 0.95em; margin-bottom: 20px; }
-        .controls { text-align: center; margin-bottom: 25px; }
+        :root {
+            --primary: #0d47a1;
+            --danger: #c62828;
+            --light: #f8fafc;
+            --gray: #78909c;
+            --dark: #263238;
+            --success: #2e7d32;
+        }
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: system-ui, sans-serif;
+            margin: 0;
+            padding: 20px 30px;
+            background: var(--light);
+            color: var(--dark);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+        h1 {
+            color: var(--primary);
+            margin: 0 0 8px;
+            font-size: 2.4rem;
+        }
+        .subtitle {
+            color: var(--gray);
+            font-size: 1rem;
+        }
+        .controls {
+            text-align: center;
+            margin: 20px 0 32px;
+        }
         .btn-clear {
-            background: #dc3545;
+            background: #546e7a;
             color: white;
             border: none;
-            padding: 10px 24px;
-            font-size: 1rem;
-            border-radius: 6px;
+            padding: 12px 36px;
+            font-size: 1.05rem;
+            border-radius: 8px;
             cursor: pointer;
             transition: background 0.2s;
         }
-        .btn-clear:hover { background: #c82333; }
+        .btn-clear:hover {
+            background: #455a64;
+        }
+        .table-container {
+            overflow-x: auto;
+            border-radius: 12px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+        }
         table {
             width: 100%;
-            border-collapse: collapse;
+            border-collapse: separate;
+            border-spacing: 0 10px;
             background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            min-width: 1200px;
         }
-        th, td { padding: 14px 12px; text-align: left; border-bottom: 1px solid #dee2e6; }
-        th { background: #0d6efd; color: white; font-weight: 600; }
-        tr:hover { background: #f1f3f5; }
-        img { max-width: 180px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
-        .transcript { max-width: 300px; white-space: pre-wrap; font-size: 0.95em; }
-        .no-data { text-align: center; color: #6c757d; font-style: italic; padding: 40px; }
-        a { color: #0d6efd; text-decoration: none; font-weight: 500; }
-        a:hover { text-decoration: underline; }
+        th {
+            background: var(--primary);
+            color: white;
+            padding: 16px 14px;
+            font-weight: 600;
+            text-align: left;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        td {
+            padding: 18px 14px;
+            vertical-align: middle;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        tr {
+            background: white;
+            transition: background 0.18s;
+        }
+        tr.new {
+            background: #fff3e0;
+            font-weight: 500;
+            border-left: 4px solid var(--danger);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(198, 40, 40, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(198, 40, 40, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(198, 40, 40, 0); }
+        }
+        tr:hover {
+            background: #f8fafc;
+        }
+        .photo-thumb {
+            width: 90px;
+            height: 90px;
+            object-fit: cover;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .photo-thumb:hover {
+            transform: scale(1.08);
+        }
+        .transcript, .call-text {
+            max-width: 320px;
+            font-size: 0.94rem;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .time-ago {
+            font-size: 0.9rem;
+            color: #607d8b;
+            font-weight: 500;
+        }
+        .directions-link {
+            color: var(--primary);
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .directions-link:hover {
+            text-decoration: underline;
+        }
+        .no-alerts {
+            text-align: center;
+            color: var(--gray);
+            font-style: italic;
+            padding: 100px 20px;
+            font-size: 1.2rem;
+        }
+        .origin-note {
+            text-align: center;
+            color: #8d6e63;
+            font-size: 0.9rem;
+            margin-top: 20px;
+        }
+
+        /* Audio Player */
+        audio {
+            width: 140px;
+            height: 32px;
+            border-radius: 6px;
+            vertical-align: middle;
+        }
+
+        /* Notification Popup */
+        .notification-popup {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            min-width: 400px;
+            max-width: 500px;
+            background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+            color: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(238, 90, 82, 0.4);
+            z-index: 10000;
+            transform: translateX(400px);
+            transition: transform 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            overflow: hidden;
+        }
+        .notification-popup.show {
+            transform: translateX(0);
+        }
+        .notification-header {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .notification-icon {
+            font-size: 2rem;
+            animation: ring 1s ease-in-out;
+        }
+        @keyframes ring {
+            0% { transform: rotate(0); }
+            10% { transform: rotate(-25deg); }
+            20% { transform: rotate(25deg); }
+            30% { transform: rotate(-12.5deg); }
+            40% { transform: rotate(6.25deg); }
+            50% { transform: rotate(0); }
+            100% { transform: rotate(0); }
+        }
+        .notification-content h3 {
+            margin: 0 0 4px 0;
+            font-size: 1.3rem;
+        }
+        .notification-content p {
+            margin: 0 0 8px 0;
+            opacity: 0.9;
+            font-size: 0.95rem;
+        }
+        .notification-audio {
+            width: 100%;
+            margin: 0;
+        }
+        .notification-footer {
+            padding: 15px 20px;
+            background: rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .notification-close {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        .notification-location {
+            font-size: 0.85rem;
+            opacity: 0.8;
+        }
+        .status-indicator {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            width: 12px;
+            height: 12px;
+            background: #4caf50;
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+            animation: pulse-green 2s infinite;
+            z-index: 1000;
+        }
+        @keyframes pulse-green {
+            0% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(76, 175, 80, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0); }
+        }
     </style>
 </head>
 <body>
+    <div class="status-indicator" id="statusIndicator"></div>
+
     <div class="header">
-        <h1>Rakshak Security Dashboard</h1>
-        <div class="security-loc">
-            Security post: ({{ security_lat }}, {{ security_lng }}) – replace with actual coordinates
-        </div>
+        <h1>🚨 Rakshak Security Dashboard</h1>
+        <div class="subtitle">Live Emergency Alerts – Anekal Campus</div>
     </div>
 
     <div class="controls">
-        <button class="btn-clear" onclick="if(confirm('Clear ALL alerts? This cannot be undone.')) clearAlerts()">Clear All Alerts (Demo Reset)</button>
+        <button class="btn-clear" onclick="clearAll()">
+            Clear All Alerts (Demo Reset)
+        </button>
     </div>
 
     {% if alerts %}
-    <table>
-        <thead>
-            <tr>
-                <th>Time</th>
-                <th>User</th>
-                <th>Location</th>
-                <th>Device</th>
-                <th>Photo</th>
-                <th>Transcript</th>
-                <th>Navigation</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for alert in alerts %}
-            <tr>
-                <td>{{ alert.timestamp }}</td>
-                <td>{{ alert.user_email }}</td>
-                <td>
-                    {% if alert.location and alert.location.lat %}
-                        {{ alert.location.lat | round(6) }}, {{ alert.location.lng | round(6) }}
-                        (acc: {{ alert.location.accuracy|default('?') }}m)
-                    {% else %}
-                        —
-                    {% endif %}
-                </td>
-                <td><small>{{ alert.device_info|default('—') }}</small></td>
-                <td>
-                    {% if alert.photo_path %}
-                        <img src="/{{ alert.photo_path }}" alt="Incident photo">
-                    {% else %}
-                        —
-                    {% endif %}
-                </td>
-                <td class="transcript">{{ alert.transcription|default('No audio / no transcript') }}</td>
-                <td>
-                    {% if alert.directions_url %}
-                        <a href="{{ alert.directions_url }}" target="_blank">→ Directions</a>
-                    {% else %}
-                        —
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>User</th>
+                    <th>Location</th>
+                    <th>Photo</th>
+                    <th>Transcript</th>
+                    <th>Call Text</th>
+                    <th>Call Audio</th>
+                    <th>Directions</th>
+                </tr>
+            </thead>
+            <tbody id="alertsTable">
+                {% for alert in alerts %}
+                <tr class="{% if alert.is_new %}new{% endif %}">
+                    <td>
+                        <div>{{ alert.timestamp_str }}</div>
+                        <div class="time-ago">{{ alert.time_ago }}</div>
+                    </td>
+                    <td>{{ alert.user_email }}</td>
+                    <td>
+                        {% if alert.location.lat %}
+                            {{ "%.6f"|format(alert.location.lat) }}, {{ "%.6f"|format(alert.location.lng) }}
+                            <small>(±{{ alert.location.accuracy|default('?') }}m)</small>
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if alert.photo_filename %}
+                            <img class="photo-thumb"
+                                 src="{{ url_for('uploaded_file', filename=alert.photo_filename) }}"
+                                 alt="Incident photo"
+                                 onclick="this.style.maxWidth='90vw'; this.style.height='auto'; this.style.borderRadius='0';">
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                    <td class="transcript">{{ alert.transcription or '—' }}</td>
+                    <td class="call-text">{{ alert.call_text or '—' }}</td>
+                    <td>
+                        {% if alert.call_audio_filename %}
+                            <audio controls preload="metadata"
+                                   style="width: 140px; height: 32px; border-radius: 6px;"
+                                   src="{{ url_for('uploaded_file', filename=alert.call_audio_filename) }}">
+                            </audio>
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if alert.directions_url %}
+                            <a class="directions-link" href="{{ alert.directions_url }}" target="_blank">
+                                → Directions
+                            </a>
+                        {% else %}
+                            <span style="color:#78909c">No location</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <p class="origin-note">🟢 Live monitoring active | Directions use your current location</p>
     {% else %}
-    <p class="no-data">No active alerts at this time.</p>
+    <p class="no-alerts">No active alerts at this time. <strong>🟢 Live monitoring active</strong></p>
     {% endif %}
 
+    <!-- Notification Popup Template -->
+    <div id="notificationPopup" class="notification-popup">
+        <div class="notification-header">
+            <div class="notification-icon">🚨</div>
+            <div class="notification-content">
+                <h3 id="popupTitle">Emergency Alert</h3>
+                <p id="popupMessage"></p>
+                <div class="notification-location" id="popupLocation"></div>
+            </div>
+        </div>
+        <audio id="popupAudio" class="notification-audio" preload="auto"></audio>
+        <div class="notification-footer">
+            <span id="popupTime"></span>
+            <button class="notification-close" onclick="closeNotification()">Dismiss</button>
+        </div>
+    </div>
+
     <script>
-        function clearAlerts() {
-            fetch('/dashboard/clear', { method: 'POST' })
-                .then(r => r.json())
-                .then(data => {
-                    alert(`Cleared ${data.deleted} alert(s)`);
-                    location.reload();
-                })
-                .catch(err => alert('Clear failed: ' + err));
+        let eventSource = null;
+        let notificationDismissed = false;
+
+        // Initialize SSE connection
+        function initNotifications() {
+            if (eventSource) eventSource.close();
+            
+            eventSource = new EventSource('/api/notifications');
+            
+            eventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'new_alert') {
+                        showNotification(data.alert);
+                    }
+                } catch(e) {
+                    console.error('Notification parse error:', e);
+                }
+            };
+
+            eventSource.onerror = function() {
+                console.log('SSE connection lost, reconnecting...');
+                setTimeout(initNotifications, 3000);
+            };
         }
+
+        function showNotification(alert) {
+            if (notificationDismissed) return;
+            
+            const popup = document.getElementById('notificationPopup');
+            const audio = document.getElementById('popupAudio');
+            
+            // Fill popup content
+            document.getElementById('popupTitle').textContent = '🚨 NEW EMERGENCY ALERT';
+            document.getElementById('popupMessage').textContent = 
+                alert.call_text || alert.transcription || 'Emergency detected';
+            document.getElementById('popupLocation').textContent = 
+                alert.location?.lat ? `${alert.location.lat.toFixed(4)}, ${alert.location.lng.toFixed(4)}` : 'Location unavailable';
+            document.getElementById('popupTime').textContent = new Date(alert.timestamp).toLocaleTimeString();
+
+            // Set audio if available
+            if (alert.call_audio_path) {
+                const audioUrl = `/uploads/${alert.call_audio_path.split('/').pop()}`;
+                audio.src = audioUrl;
+                audio.play().catch(e => console.log('Autoplay prevented:', e));
+            }
+
+            // Show popup with animation
+            popup.classList.add('show');
+            
+            // Auto-dismiss after 10s
+            setTimeout(() => {
+                if (popup.classList.contains('show')) {
+                    closeNotification();
+                }
+            }, 10000);
+        }
+
+        function closeNotification() {
+            const popup = document.getElementById('notificationPopup');
+            popup.classList.remove('show');
+            notificationDismissed = true;
+            setTimeout(() => {
+                notificationDismissed = false;
+                document.getElementById('popupAudio').pause();
+            }, 400);
+        }
+
+        // Initialize on page load
+        window.addEventListener('load', () => {
+            initNotifications();
+            document.getElementById('statusIndicator').style.display = 'block';
+        });
+
+        // Clear alerts
+        async function clearAll() {
+            if (!confirm('This will delete ALL alerts permanently. Proceed?')) return;
+            try {
+                const res = await fetch('/dashboard/clear', { method: 'POST' });
+                const data = await res.json();
+                alert(`Cleared ${data.deleted} alert(s)`);
+                location.reload();
+            } catch (err) {
+                alert('Clear failed: ' + err.message);
+            }
+        }
+
+        // Handle visibility change (pause notifications when tab inactive)
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                document.getElementById('popupAudio').pause();
+            }
+        });
     </script>
 </body>
 </html>

@@ -1,106 +1,187 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_from_directory
 import os
 from datetime import datetime
 from pymongo import MongoClient
 from transcript import audio2vec
+from speech import process_emergency_call
+from pathlib import Path
+import json
 
 app = Flask(__name__)
 
+# MongoDB
 client = MongoClient("mongodb://localhost:27017/shake_detector")
 db = client.shake_detector
 emergencies = db.emergencies
 
+# Uploads
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 DEFAULT_EMAIL = "tester@gmail.com"
 
-# Hard-coded security location (e.g., Bengaluru campus gate – replace with real)
-SECURITY_LAT = 13.0219  # IISc example
-SECURITY_LNG = 77.5671
+
+@app.template_filter('basename')
+def basename_filter(value):
+    """Extract filename from path (used in templates)"""
+    if not value:
+        return ""
+    return Path(value).name
+
+
+@app.route('/uploads/<path:filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
+
 @app.route("/api/emergency", methods=["POST"])
 def emergency_alert():
-    data = request.form.to_dict()
-    location_str = data.get("location", "{}")
-    device_info_str = data.get("device_info", "{}")
+    form = request.form
+    files = request.files
 
-    audio_file = request.files.get('audio')
-    photo_file = request.files.get('photo')
+    # Parse JSON safely
+    try:
+        location = json.loads(form.get("location", "{}") or "{}")
+    except json.JSONDecodeError:
+        location = {}
 
-    audio_path = None
-    photo_path = None
-    transcription = ""
+    try:
+        device_info = json.loads(form.get("device_info", "{}") or "{}")
+    except json.JSONDecodeError:
+        device_info = {}
 
+    audio_file = files.get('audio')
+    photo_file = files.get('photo')
+
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    audio_path = photo_path = transcription = call_text = call_audio_path = None
+
+    # Save audio + transcribe
     if audio_file:
-        audio_path = os.path.join(app.config['UPLOAD_FOLDER'], "emergency_audio.webm")
+        audio_path = os.path.join(UPLOAD_FOLDER, f"emergency_audio_{timestamp}.webm")
         audio_file.save(audio_path)
-        print(f"Audio saved/overwritten: {audio_path}")
         transcription = audio2vec(audio_path)
 
+    # Save photo
     if photo_file:
-        photo_path = os.path.join(app.config['UPLOAD_FOLDER'], "emergency.png")
+        photo_path = os.path.join(UPLOAD_FOLDER, f"emergency_{timestamp}.png")
         photo_file.save(photo_path)
-        print(f"Photo saved/overwritten: {photo_path}")
+
+    # Generate call text + TTS if photo exists
+    try:
+        if photo_path:
+            call_text, call_audio_path_obj = process_emergency_call(
+                image_path=photo_path,
+                transcription=transcription,
+                voice="austin"
+            )
+            call_audio_path = str(call_audio_path_obj)
+    except Exception as e:
+        print(f"Call audio generation failed: {e}")
 
     emergency = {
         "user_email": DEFAULT_EMAIL,
-        "location": eval(location_str) if location_str else {},
-        "device_info": eval(device_info_str) if device_info_str else {},
+        "location": location,
+        "device_info": device_info,
         "audio_path": audio_path,
         "photo_path": photo_path,
         "transcription": transcription,
+        "call_text": call_text,
+        "call_audio_path": call_audio_path,
         "timestamp": datetime.utcnow(),
     }
 
     result = emergencies.insert_one(emergency)
-    print(f"Emergency stored: {emergency}")
+    print(f"🚨 NEW ALERT: {emergency}")
 
     return jsonify({
         "status": "success",
-        "message": "Alert received",
         "transcription": transcription,
-        "id": str(result.inserted_id),
+        "call_text": call_text,
+        "call_audio_path": call_audio_path,
+        "id": str(result.inserted_id)
     })
 
-@app.route("/api/emergencies", methods=["GET"])
-def get_emergencies():
-    recent = list(emergencies.find().sort("timestamp", -1).limit(10))
-    for e in recent:
-        e["_id"] = str(e["_id"])
-        e["timestamp"] = e["timestamp"].isoformat()
-    return jsonify(recent)
 
-# New dashboard route
+@app.route("/api/notifications")
+def notifications():
+    """Server-Sent Events endpoint for real-time notifications"""
+    def event_stream():
+        last_id = request.args.get('last_id', 0, type=int)
+        while True:
+            # Get newest alert after last_id
+            new_alerts = list(emergencies.find(
+                {"_id": {"$gt": emergencies.find_one({"_id": {"$gte": last_id}})["_id"]}}
+            ).sort("timestamp", -1).limit(1))
+            
+            if new_alerts:
+                alert = new_alerts[0]
+                yield f"data: {json.dumps({'type': 'new_alert', 'alert': alert})}\n\n"
+            
+            import time
+            time.sleep(1)
+    
+    return app.response_class(event_stream(), mimetype="text/event-stream")
+
+
 @app.route("/dashboard")
 def dashboard():
-    alerts = list(emergencies.find().sort("timestamp", -1))
-    for alert in alerts:
-        alert["_id"] = str(alert["_id"])
-        alert["timestamp"] = alert["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
-        # Maps path URL
-        if "location" in alert and "lat" in alert["location"] and "lng" in alert["location"]:
-            alert_loc_lat = alert["location"]["lat"]
-            alert_loc_lng = alert["location"]["lng"]
-            alert["directions_url"] = f"https://www.google.com/maps/dir/?api=1&origin={SECURITY_LAT},{SECURITY_LNG}&destination={alert_loc_lat},{alert_loc_lng}&travelmode=driving"
-        else:
-            alert["directions_url"] = ""
-    return render_template("dashboard.html", alerts=alerts, security_lat=SECURITY_LAT, security_lng=SECURITY_LNG)
+    raw_alerts = list(emergencies.find().sort("timestamp", -1))
+    now = datetime.utcnow()
 
-# ──────────────────────────────────────────────
-# NEW: Clear alerts endpoint (for demo reset button)
-# ──────────────────────────────────────────────
+    alerts = []
+    for raw in raw_alerts:
+        ts = raw["timestamp"]
+        if ts.tzinfo is not None:
+            ts = ts.replace(tzinfo=None)
+
+        delta_minutes = (now - ts).total_seconds() // 60
+        time_ago = "just now" if delta_minutes < 1 else f"{int(delta_minutes)} min ago"
+
+        loc = raw.get("location", {})
+        dir_url = ""
+        if "lat" in loc and "lng" in loc:
+            dir_url = (
+                "https://www.google.com/maps/dir/?api=1"
+                f"&destination={loc['lat']},{loc['lng']}&travelmode=driving"
+            )
+
+        photo_path = raw.get("photo_path")
+        call_audio_path = raw.get("call_audio_path")
+
+        photo_filename = Path(photo_path).name if photo_path else None
+        call_audio_filename = Path(call_audio_path).name if call_audio_path else None
+
+        alerts.append({
+            "timestamp_str": ts.strftime("%Y-%m-%d %H:%M:%S"),
+            "time_ago": time_ago,
+            "user_email": raw.get("user_email", "unknown"),
+            "location": loc,
+            "device_info": str(raw.get("device_info", {})),
+            "photo_path": photo_path,
+            "photo_filename": photo_filename,
+            "transcription": raw.get("transcription", "") or "",
+            "call_text": raw.get("call_text", "") or "",
+            "call_audio_path": call_audio_path,
+            "call_audio_filename": call_audio_filename,
+            "directions_url": dir_url,
+            "is_new": (now - ts).total_seconds() < 60,
+        })
+
+    return render_template("dashboard.html", alerts=alerts)
+
 
 @app.route("/dashboard/clear", methods=["POST"])
 def clear_alerts():
-    result = emergencies.delete_many({})
-    print(f"Cleared {result.deleted_count} alerts")
-    return jsonify({"status": "success", "deleted": result.deleted_count})
+    cnt = emergencies.delete_many({}).deleted_count
+    print(f"Cleared {cnt} alerts")
+    return jsonify({"deleted": cnt})
 
 
 if __name__ == "__main__":
